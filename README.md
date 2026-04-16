@@ -4,17 +4,28 @@ This project automates the synchronization of game times from a Google Sheet to 
 
 ## Setup
 
-1. **Enable Google APIs**:
+1. **Create a Consistent Python Environment**:
+   - Create a virtual environment:
+     ```bash
+     python3 -m venv .venv
+     source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+     ```
+   - Install pip-tools for dependency management:
+     ```bash
+     pip install pip-tools
+     ```
+   - Generate pinned requirements.txt (if requirements.in exists):
+     ```bash
+     pip-compile requirements.in
+     pip-sync
+     ```
+
+2. **Enable Google APIs**:
    - Go to the [Google Cloud Console](https://console.cloud.google.com/).
    - Create a new project or select an existing one.
    - Enable the Google Sheets API and Google Calendar API.
    - Create credentials (OAuth 2.0 Client ID) and download the `credentials.json` file.
    - Place `credentials.json` in the project root.
-
-2. **Install Dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
 
 3. **Run the Script**:
    ```bash
@@ -26,15 +37,16 @@ This project automates the synchronization of game times from a Google Sheet to 
 ## Spreadsheet Format
 
 The Google Sheet should have the following columns (case-insensitive):
-- **Date**: In YYYY-MM-DD format
+- **Date**: In DD/MM/YYYY format
 - **Time**: In HH:MM format (24-hour)
-- **Game**: The name of the game/event
+- **Court**: The court being played on
+- **Opponent**: The team being played
 
 Example:
-| Date       | Time  | Game          |
-|------------|-------|---------------|
-| 2023-10-01 | 14:00 | Game A        |
-| 2023-10-02 | 16:30 | Game B        |
+| Date       | Time  | Court | Opponent    |
+|------------|-------|-------|-------------|
+| 23/04/2026 | 19:30 | 0     | Moon        |
+| 30/04/2026 | 20:30 | 4     | Beat Street |
 
 ## How It Works
 
@@ -46,12 +58,13 @@ Example:
 
 ## Configuration
 
-- **SPREADSHEET_ID**: Set in `main.py` (extracted from the sheet URL).
-- **CALENDAR_ID**: Set to 'primary' for the default calendar; change if needed.
-- **Time Zone**: Currently set to UTC; modify if your events are in a different time zone.
+Configuration is stored in a `config.json` file that provides the following details:
+- **spreadsheet_id**: The id of the Satellite Junkies spreadsheet to use (extracted from the sheet URL).
+- **calendar_id**: The id of the calendar to update. Set to 'primary' for the default calendar; change if needed.
 
 ## Notes
 
 - Ensure the Google account has access to the spreadsheet and calendar.
 - The script assumes one game per day; if multiple games occur on the same day, only the first event will be updated.
 - Game duration is assumed to be 1 hour; adjust in the code if necessary.
+- Time-zone is always the script runners local time
