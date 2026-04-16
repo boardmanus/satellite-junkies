@@ -38,15 +38,15 @@ This project automates the synchronization of game times from a Google Sheet to 
 
 The Google Sheet should have the following columns (case-insensitive):
 - **Date**: In DD/MM/YYYY format
-- **Time**: In HH:MM format (24-hour)
+- **Time**: In HH:MM AM/PM format (12-hour), e.g. `8:30 PM`
 - **Court**: The court being played on
 - **Opponent**: The team being played
 
 Example:
-| Date       | Time  | Court | Opponent    |
-|------------|-------|-------|-------------|
-| 23/04/2026 | 19:30 | 0     | Moon        |
-| 30/04/2026 | 20:30 | 4     | Beat Street |
+| Date       | Time     | Court | Opponent    |
+|------------|----------|-------|-------------|
+| 23/04/2026 | 8:30 PM  | 0     | Moon        |
+| 30/04/2026 | 8:30 PM  | 4     | Beat Street |
 
 ## How It Works
 

@@ -91,29 +91,63 @@ def parse_row(row, headers):
     }
 
 
-def build_event_summary(game_data):
-    return f"Court {game_data['court']} vs {game_data['opponent']}"
+def build_event_summary(court, opponent):
+    match court:
+        case 0:
+            return "Volleyball Practice @ Moon"
+        case _:
+            return f"Court {court}, {opponent}"
 
 
-def build_event_description(game_data):
-    return f"Court: {game_data['court']}\nOpponent: {game_data['opponent']}"
+def build_event_description(court, opponent):
+    match court:
+        case 0:
+            return "Volleyball Practice, rule of 10."
+        case _:
+            return f"Satellite Junkies vs {opponent}, on Court {court}"
 
+def build_event_address(court):
+    match court:
+        case 0:
+            return "Moon Under Water, 152 Somerfield Street, Somerfield, Christchurch 8024"
+        case 1 | 2 | 3 | 4 | 5 | 6:
+            return "Pioneer Stadium, 75 Lyttelton St, Somerfield, Christchurch 8024"
+        case _:
+            return "Parakiore, 50 Saint Asaph Street, Christchurch Central City, Christchurch 8011"
+    
 
-def parse_datetime_local(date_str, time_str):
-    try:
-        naive_dt = datetime.strptime(f"{date_str} {time_str}", "%d/%m/%Y %H:%M")
-        local_tz = datetime.now().astimezone().tzinfo
-        return naive_dt.replace(tzinfo=local_tz)
-    except ValueError as first_error:
-        logging.error('Error parsing date/time: %s %s', date_str, time_str)
-        raise first_error
+def parse_datetime_local(date_str: str, time_str: str):
+    ntime_str = time_str.strip().upper().replace('.', '')
+    formats = [
+        "%d/%m/%Y %I:%M %p",  # 23/04/2026 8:30 PM
+        #"%d/%m/%Y %I:%M%p",   # 23/04/2026 8:30PM
+        #"%d/%m/%Y %H:%M",     # 23/04/2026 20:30 (24-hour)
+        #"%m/%d/%Y %I:%M %p",  # 04/23/2026 8:30 PM (US format)
+        #"%m/%d/%Y %I:%M%p",   # 04/23/2026 8:30PM (US format)
+        #"%m/%d/%Y %H:%M",     # 04/23/2026 20:30 (US 24-hour)
+        #"%Y-%m-%d %H:%M",     # 2026-04-23 20:30 (ISO)
+        #"%Y-%m-%d %I:%M %p",  # 2026-04-23 8:30 PM (ISO with AM/PM)
+        #"%d %b %Y %I:%M %p",  # 23 Apr 2026 8:30 PM
+        #"%d %b %Y %H:%M",     # 23 Apr 2026 20:30
+    ]
+    last_error = None
+    for date_format in formats:
+        try:
+            return datetime.strptime(f"{date_str} {ntime_str}", date_format)
+        except ValueError as error:
+            last_error = error
+    logging.error(f"{last_error}")
+    raise last_error
 
 
 def create_or_update_event(calendar_service, calendar_id, game_data):
-    start = parse_datetime_local(game_data['date'], game_data['time'])
-    end = start + timedelta(hours=1)
-    local_tz = start.tzinfo
+    date: str = game_data['date']
+    time: str = game_data['time']
+    court: int = game_data['court']
+    opponent: str = game_data['opponent']
 
+    start = parse_datetime_local(date, time)
+    end = start + timedelta(hours=1)
     day_start = start.replace(hour=0, minute=0, second=0, microsecond=0)
     day_end = day_start + timedelta(days=1)
 
@@ -126,19 +160,20 @@ def create_or_update_event(calendar_service, calendar_id, game_data):
         orderBy='startTime'
     ).execute()
 
+
     events = events_result.get('items', [])
-    summary = build_event_summary(game_data)
-    description = build_event_description(game_data)
+    summary = build_event_summary(court, opponent)
+    description = build_event_description(court, opponent)
+    address = build_event_address(court)
     event_body = {
         'summary': summary,
         'description': description,
+        'location': address,
         'start': {
-            'dateTime': start.isoformat(),
-            'timeZone': str(local_tz),
+            'dateTime': start.isoformat()
         },
         'end': {
-            'dateTime': end.isoformat(),
-            'timeZone': str(local_tz),
+            'dateTime': end.isoformat()
         },
         'extendedProperties': {
             'private': {
