@@ -1,3 +1,4 @@
+import json
 import os
 import pickle
 from datetime import datetime, timedelta
@@ -14,132 +15,176 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly',
           'https://www.googleapis.com/auth/calendar']
 
-# Google Sheet ID from the URL
-SPREADSHEET_ID = '15TqYxGo8TSb49CBrRoZALoMPi6WqpuMSSFBbbs65E80'
-RANGE_NAME = 'Sheet1!A:Z'  # Adjust if sheet name differs
+CONFIG_PATH = 'config.json'
+CREDENTIALS_PATH = '.private/credentials.json'
+TOKEN_PATH = '.private/token.pickle'
+DEFAULT_RANGE_NAME = 'Sheet1!A:Z'  # Adjust if sheet name differs
 
-# Calendar ID (use 'primary' for default calendar)
-CALENDAR_ID = 'primary'
+
+def load_config():
+    if not os.path.exists(CONFIG_PATH):
+        logging.error('Missing config.json in the project root.')
+        raise FileNotFoundError('config.json not found')
+
+    with open(CONFIG_PATH, 'r', encoding='utf-8') as config_file:
+        config = json.load(config_file)
+
+    if 'spreadsheet_id' not in config or 'calendar_id' not in config:
+        logging.error('config.json must include spreadsheet_id and calendar_id.')
+        raise KeyError('Missing required config values')
+
+    config.setdefault('sheet_range', DEFAULT_RANGE_NAME)
+    return config
+
 
 def get_credentials():
     """Gets valid user credentials from storage.
 
     If nothing has been stored, or if the stored credentials are invalid,
     the OAuth2 flow is completed to obtain the new credentials.
-
-    Returns:
-        Credentials, the obtained credential.
     """
     creds = None
-    # The file token.pickle stores the user's access and refresh tokens, and is
-    # created automatically when the authorization flow completes for the first
-    # time.
-    if os.path.exists('.private/token.pickle'):
-        with open('.private/token.pickle', 'rb') as token:
-            creds = pickle.load(token)
-    # If there are no (valid) credentials available, let the user log in.
+    if os.path.exists(TOKEN_PATH):
+        with open(TOKEN_PATH, 'rb') as token_file:
+            creds = pickle.load(token_file)
+
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
+            if not os.path.exists(CREDENTIALS_PATH):
+                logging.error('Missing credentials.json in the project root.')
+                raise FileNotFoundError('credentials.json not found')
             flow = InstalledAppFlow.from_client_secrets_file(
-                '.private/credentials.json', SCOPES)
+                CREDENTIALS_PATH, SCOPES)
             creds = flow.run_local_server(port=0)
-        # Save the credentials for the next run
-        with open('.private/token.pickle', 'wb') as token:
-            pickle.dump(creds, token)
+        with open(TOKEN_PATH, 'wb') as token_file:
+            pickle.dump(creds, token_file)
     return creds
 
+
+def parse_row(row, headers):
+    date_col = next((i for i, h in enumerate(headers) if h.lower() == 'date'), None)
+    time_col = next((i for i, h in enumerate(headers) if h.lower() == 'time'), None)
+    court_col = next((i for i, h in enumerate(headers) if h.lower() == 'court'), None)
+    opponent_col = next((i for i, h in enumerate(headers) if h.lower() == 'opponent'), None)
+
+    if None in (date_col, time_col, court_col, opponent_col):
+        missing = [name for name, col in [
+            ('Date', date_col),
+            ('Time', time_col),
+            ('Court', court_col),
+            ('Opponent', opponent_col),
+        ] if col is None]
+        logging.error('Required columns missing from sheet: %s', ', '.join(missing))
+        raise ValueError('Missing required sheet columns')
+
+    if len(row) <= max(date_col, time_col, court_col, opponent_col):
+        logging.warning('Skipping incomplete row: %s', row)
+        return None
+
+    return {
+        'date': row[date_col].strip(),
+        'time': row[time_col].strip(),
+        'court': row[court_col].strip(),
+        'opponent': row[opponent_col].strip(),
+    }
+
+
+def build_event_summary(game_data):
+    return f"Court {game_data['court']} vs {game_data['opponent']}"
+
+
+def build_event_description(game_data):
+    return f"Court: {game_data['court']}\nOpponent: {game_data['opponent']}"
+
+
+def parse_datetime_local(date_str, time_str):
+    try:
+        naive_dt = datetime.strptime(f"{date_str} {time_str}", "%d/%m/%Y %H:%M")
+        local_tz = datetime.now().astimezone().tzinfo
+        return naive_dt.replace(tzinfo=local_tz)
+    except ValueError as first_error:
+        logging.error('Error parsing date/time: %s %s', date_str, time_str)
+        raise first_error
+
+
+def create_or_update_event(calendar_service, calendar_id, game_data):
+    start = parse_datetime_local(game_data['date'], game_data['time'])
+    end = start + timedelta(hours=1)
+    local_tz = start.tzinfo
+
+    day_start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end = day_start + timedelta(days=1)
+
+    events_result = calendar_service.events().list(
+        calendarId=calendar_id,
+        timeMin=day_start.isoformat(),
+        timeMax=day_end.isoformat(),
+        privateExtendedProperty='source=satellite-junkies',
+        singleEvents=True,
+        orderBy='startTime'
+    ).execute()
+
+    events = events_result.get('items', [])
+    summary = build_event_summary(game_data)
+    description = build_event_description(game_data)
+    event_body = {
+        'summary': summary,
+        'description': description,
+        'start': {
+            'dateTime': start.isoformat(),
+            'timeZone': str(local_tz),
+        },
+        'end': {
+            'dateTime': end.isoformat(),
+            'timeZone': str(local_tz),
+        },
+        'extendedProperties': {
+            'private': {
+                'source': 'satellite-junkies'
+            }
+        }
+    }
+
+    if events:
+        event = events[0]
+        event.update(event_body)
+        calendar_service.events().update(calendarId=calendar_id, eventId=event['id'], body=event).execute()
+        logging.info('Updated calendar event for %s on %s', summary, game_data['date'])
+    else:
+        calendar_service.events().insert(calendarId=calendar_id, body=event_body).execute()
+        logging.info('Created new calendar event for %s on %s', summary, game_data['date'])
+
+
 def main():
-    """Main function to read from Google Sheet and update Google Calendar."""
+    config = load_config()
     creds = get_credentials()
     sheets_service = build('sheets', 'v4', credentials=creds)
     calendar_service = build('calendar', 'v3', credentials=creds)
 
-    # Call the Sheets API
     sheet = sheets_service.spreadsheets()
-    result = sheet.values().get(spreadsheetId=SPREADSHEET_ID,
-                                range=RANGE_NAME).execute()
+    result = sheet.values().get(spreadsheetId=config['spreadsheet_id'],
+                                range=config['sheet_range']).execute()
     values = result.get('values', [])
 
     if not values:
         logging.warning('No data found in the spreadsheet.')
         return
 
-    # Assume first row is headers
     headers = values[0]
-    logging.info(f'Headers: {headers}')
-
-    # Find column indices (case-insensitive)
-    date_col = next((i for i, h in enumerate(headers) if h.lower() == 'date'), None)
-    time_col = next((i for i, h in enumerate(headers) if h.lower() == 'time'), None)
-    game_col = next((i for i, h in enumerate(headers) if h.lower() == 'game'), None)
-
-    if date_col is None or time_col is None or game_col is None:
-        logging.error('Required columns (Date, Time, Game) not found in the sheet.')
-        return
+    logging.info('Headers: %s', headers)
 
     for row in values[1:]:
-        if len(row) <= max(date_col, time_col, game_col):
-            logging.warning(f'Skipping incomplete row: {row}')
+        game_data = parse_row(row, headers)
+        if not game_data:
             continue
-
-        date_str = row[date_col].strip()
-        time_str = row[time_col].strip()
-        game_name = row[game_col].strip()
 
         try:
-            # Parse date and time
-            start_datetime = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
-            # Assume game duration is 1 hour; adjust as needed
-            end_datetime = start_datetime + timedelta(hours=1)
-        except ValueError as e:
-            logging.error(f'Error parsing date/time for {game_name}: {e}')
+            create_or_update_event(calendar_service, config['calendar_id'], game_data)
+        except ValueError:
             continue
 
-        # Check for existing event on the same day
-        day_start = start_datetime.replace(hour=0, minute=0, second=0, microsecond=0)
-        day_end = day_start + timedelta(days=1)
-
-        events_result = calendar_service.events().list(
-            calendarId=CALENDAR_ID,
-            timeMin=day_start.isoformat() + 'Z',
-            timeMax=day_end.isoformat() + 'Z',
-            privateExtendedProperty='source=satellite-junkies',
-            singleEvents=True,
-            orderBy='startTime'
-        ).execute()
-
-        events = events_result.get('items', [])
-
-        if events:
-            # Update the existing event (assume one per day)
-            event = events[0]
-            event['summary'] = game_name
-            event['start']['dateTime'] = start_datetime.isoformat() + 'Z'
-            event['end']['dateTime'] = end_datetime.isoformat() + 'Z'
-            calendar_service.events().update(calendarId=CALENDAR_ID, eventId=event['id'], body=event).execute()
-            logging.info(f'Updated calendar event for {game_name} on {date_str}')
-        else:
-            # Create new event
-            event = {
-                'summary': game_name,
-                'start': {
-                    'dateTime': start_datetime.isoformat() + 'Z',
-                    'timeZone': 'UTC',
-                },
-                'end': {
-                    'dateTime': end_datetime.isoformat() + 'Z',
-                    'timeZone': 'UTC',
-                },
-                'extendedProperties': {
-                    'private': {
-                        'source': 'satellite-junkies'
-                    }
-                }
-            }
-            calendar_service.events().insert(calendarId=CALENDAR_ID, body=event).execute()
-            logging.info(f'Created new calendar event for {game_name} on {date_str}')
 
 if __name__ == '__main__':
     main()

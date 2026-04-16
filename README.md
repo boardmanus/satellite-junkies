@@ -62,6 +62,13 @@ Configuration is stored in a `config.json` file that provides the following deta
 - **spreadsheet_id**: The id of the Satellite Junkies spreadsheet to use (extracted from the sheet URL).
 - **calendar_id**: The id of the calendar to update. Set to 'primary' for the default calendar; change if needed.
 
+## Testing
+
+Run the unit tests with:
+```bash
+python -m unittest discover tests
+```
+
 ## Notes
 
 - Ensure the Google account has access to the spreadsheet and calendar.
