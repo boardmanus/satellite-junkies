@@ -2,6 +2,7 @@ import json
 import os
 import pickle
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -63,7 +64,7 @@ def get_credentials():
     return creds
 
 
-def parse_row(row, headers):
+def parse_row(row: list, headers: list):
     date_col = next((i for i, h in enumerate(headers) if h.lower() == 'date'), None)
     time_col = next((i for i, h in enumerate(headers) if h.lower() == 'time'), None)
     court_col = next((i for i, h in enumerate(headers) if h.lower() == 'court'), None)
@@ -83,30 +84,35 @@ def parse_row(row, headers):
         logging.warning('Skipping incomplete row: %s', row)
         return None
 
+    court_value = row[court_col].strip()
+    try:
+        court_value = int(court_value)
+    except ValueError:
+        logging.warning('Court value is not numeric: %s', court_value)
+
     return {
         'date': row[date_col].strip(),
         'time': row[time_col].strip(),
-        'court': row[court_col].strip(),
+        'court': court_value,
         'opponent': row[opponent_col].strip(),
     }
 
-
-def build_event_summary(court, opponent):
+def build_event_summary(court: int, opponent: str):
     match court:
         case 0:
             return "Volleyball Practice @ Moon"
         case _:
-            return f"Court {court}, {opponent}"
+            return f"Volleyball, Court {court} vs {opponent}"
 
 
-def build_event_description(court, opponent):
+def build_event_description(court: int, opponent: str):
     match court:
         case 0:
             return "Volleyball Practice, rule of 10."
         case _:
             return f"Satellite Junkies vs {opponent}, on Court {court}"
 
-def build_event_address(court):
+def build_event_address(court: int):
     match court:
         case 0:
             return "Moon Under Water, 152 Somerfield Street, Somerfield, Christchurch 8024"
@@ -114,33 +120,34 @@ def build_event_address(court):
             return "Pioneer Stadium, 75 Lyttelton St, Somerfield, Christchurch 8024"
         case _:
             return "Parakiore, 50 Saint Asaph Street, Christchurch Central City, Christchurch 8011"
-    
+
+def build_guests(config: dict):
+    return config.get('players', [])
 
 def parse_datetime_local(date_str: str, time_str: str):
-    ntime_str = time_str.strip().upper().replace('.', '')
-    formats = [
-        "%d/%m/%Y %I:%M %p",  # 23/04/2026 8:30 PM
-        #"%d/%m/%Y %I:%M%p",   # 23/04/2026 8:30PM
-        #"%d/%m/%Y %H:%M",     # 23/04/2026 20:30 (24-hour)
-        #"%m/%d/%Y %I:%M %p",  # 04/23/2026 8:30 PM (US format)
-        #"%m/%d/%Y %I:%M%p",   # 04/23/2026 8:30PM (US format)
-        #"%m/%d/%Y %H:%M",     # 04/23/2026 20:30 (US 24-hour)
-        #"%Y-%m-%d %H:%M",     # 2026-04-23 20:30 (ISO)
-        #"%Y-%m-%d %I:%M %p",  # 2026-04-23 8:30 PM (ISO with AM/PM)
-        #"%d %b %Y %I:%M %p",  # 23 Apr 2026 8:30 PM
-        #"%d %b %Y %H:%M",     # 23 Apr 2026 20:30
-    ]
-    last_error = None
-    for date_format in formats:
-        try:
-            return datetime.strptime(f"{date_str} {ntime_str}", date_format)
-        except ValueError as error:
-            last_error = error
-    logging.error(f"{last_error}")
-    raise last_error
+    ntime_str = time_str.strip().upper().replace(' ', '')
+    dt = datetime.strptime(f"{date_str} {ntime_str}", "%d/%m/%Y %I:%M%p")
+    return dt.replace(tzinfo=ZoneInfo('Pacific/Auckland'))
 
+def normalize_attendees(attendees):
+    if not attendees:
+        return []
+    return sorted([attendee.get('email') for attendee in attendees if 'email' in attendee])
 
-def create_or_update_event(calendar_service, calendar_id, game_data):
+def needs_update(existing_event, new_body):
+    keys_to_check = ['summary', 'description', 'location', 'start', 'end']
+    for key in keys_to_check:
+        if existing_event.get(key) != new_body.get(key):
+            return True
+
+    existing_attendees = normalize_attendees(existing_event.get('attendees', []))
+    new_attendees = normalize_attendees(new_body.get('attendees', []))
+    if existing_attendees != new_attendees:
+        return True
+
+    return False
+
+def create_or_update_event(config: dict, calendar_service, game_data: dict):
     date: str = game_data['date']
     time: str = game_data['time']
     court: int = game_data['court']
@@ -151,6 +158,8 @@ def create_or_update_event(calendar_service, calendar_id, game_data):
     day_start = start.replace(hour=0, minute=0, second=0, microsecond=0)
     day_end = day_start + timedelta(days=1)
 
+    calendar_id = config['calendar_id']
+
     events_result = calendar_service.events().list(
         calendarId=calendar_id,
         timeMin=day_start.isoformat(),
@@ -160,36 +169,51 @@ def create_or_update_event(calendar_service, calendar_id, game_data):
         orderBy='startTime'
     ).execute()
 
-
     events = events_result.get('items', [])
     summary = build_event_summary(court, opponent)
-    description = build_event_description(court, opponent)
-    address = build_event_address(court)
     event_body = {
         'summary': summary,
-        'description': description,
-        'location': address,
+        'description': build_event_description(court, opponent),
+        'location': build_event_address(court),
         'start': {
-            'dateTime': start.isoformat()
+            'dateTime': start.isoformat(),
+            'timeZone': start.tzinfo.key
         },
         'end': {
-            'dateTime': end.isoformat()
+            'dateTime': end.isoformat(),
+            'timeZone': start.tzinfo.key
         },
         'extendedProperties': {
             'private': {
                 'source': 'satellite-junkies'
             }
-        }
+        },
+        'attendees': [{'email': email} for email in build_guests(config)]
     }
 
     if events:
-        event = events[0]
-        event.update(event_body)
-        calendar_service.events().update(calendarId=calendar_id, eventId=event['id'], body=event).execute()
-        logging.info('Updated calendar event for %s on %s', summary, game_data['date'])
+        existing_event = events[0]
+        if needs_update(existing_event, event_body):
+            calendar_service.events().update(
+                calendarId=calendar_id,
+                eventId=existing_event['id'],
+                body=event_body,
+                sendUpdates='none'
+            ).execute()
+            logging.info('Updated calendar event for %s on %s', summary, date)
+        else:
+            logging.info('Calendar event for %s on %s is already up to date', summary, date)
+        # Delete any additional events
+        for extra_event in events[1:]:
+            calendar_service.events().delete(calendarId=calendar_id, eventId=extra_event['id']).execute()
+            logging.info('Deleted duplicate calendar event for %s on %s', summary, date)
     else:
-        calendar_service.events().insert(calendarId=calendar_id, body=event_body).execute()
-        logging.info('Created new calendar event for %s on %s', summary, game_data['date'])
+        calendar_service.events().insert(
+            calendarId=calendar_id,
+            body=event_body,
+            sendUpdates='none'
+        ).execute()
+        logging.info('Created new calendar event for %s on %s', summary, date)
 
 
 def main():
@@ -208,15 +232,13 @@ def main():
         return
 
     headers = values[0]
-    logging.info('Headers: %s', headers)
-
     for row in values[1:]:
         game_data = parse_row(row, headers)
         if not game_data:
             continue
 
         try:
-            create_or_update_event(calendar_service, config['calendar_id'], game_data)
+            create_or_update_event(config, calendar_service, game_data)
         except ValueError:
             continue
 

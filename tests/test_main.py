@@ -19,17 +19,21 @@ sys.modules['google.auth.transport.requests'] = mock.Mock(Request=mock.Mock())
 
 import main
 
+TEST_CONFIG = {
+    'spreadsheet_id': 'test-spreadsheet-id',
+    'calendar_id': 'primary',
+    'players': ['player1@example.com', 'player2@example.com']
+}
 
 class TestMain(unittest.TestCase):
     def test_load_config_success(self):
-        config_data = {'spreadsheet_id': 'abc', 'calendar_id': 'primary'}
         with mock.patch('main.os.path.exists', return_value=True), \
-             mock.patch('builtins.open', mock.mock_open(read_data=json.dumps(config_data))):
+             mock.patch('builtins.open', mock.mock_open(read_data=json.dumps(TEST_CONFIG))):
             config = main.load_config()
 
-        self.assertEqual(config['spreadsheet_id'], 'abc')
+        self.assertEqual(config['spreadsheet_id'], 'test-spreadsheet-id')
         self.assertEqual(config['calendar_id'], 'primary')
-        self.assertEqual(config['sheet_range'], 'Sheet1!A:Z')
+        self.assertEqual(config['players'], ['player1@example.com', 'player2@example.com'])
 
     def test_load_config_missing_file(self):
         with mock.patch('main.os.path.exists', return_value=False):
@@ -84,7 +88,7 @@ class TestMain(unittest.TestCase):
         calendar_service.events.return_value.insert.return_value.execute.return_value = {'id': 'new-event'}
 
         game_data = {'date': '23/04/2026', 'time': '8:30 PM', 'court': '0', 'opponent': 'Moon'}
-        main.create_or_update_event(calendar_service, 'primary', game_data)
+        main.create_or_update_event(TEST_CONFIG, calendar_service, game_data)
 
         calendar_service.events.return_value.insert.assert_called_once()
         calendar_service.events.return_value.update.assert_not_called()
@@ -94,9 +98,9 @@ class TestMain(unittest.TestCase):
         existing_event = {'id': 'existing'}
         calendar_service.events.return_value.list.return_value.execute.return_value = {'items': [existing_event]}
         calendar_service.events.return_value.update.return_value.execute.return_value = {'id': 'existing'}
-
+        
         game_data = {'date': '23/04/2026', 'time': '8:30 PM', 'court': '0', 'opponent': 'Moon'}
-        main.create_or_update_event(calendar_service, 'primary', game_data)
+        main.create_or_update_event(TEST_CONFIG, calendar_service, game_data)
 
         calendar_service.events.return_value.update.assert_called_once()
         calendar_service.events.return_value.insert.assert_not_called()

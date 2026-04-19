@@ -1,4 +1,8 @@
 {
     "spreadsheet_id": "15TqYxGo8TSb49CBrRoZALoMPi6WqpuMSSFBbbs65E80",
-    "calendar_id": "144b2932b4dd04ab2a010d84cc95cfa6aaff53d6a4525f85dfc1e6212c6a7b35@group.calendar.google.com"
+    "calendar_id": "144b2932b4dd04ab2a010d84cc95cfa6aaff53d6a4525f85dfc1e6212c6a7b35@group.calendar.google.com",
+    "players": [
+        "player1@volleyball.com",
+        "player2@volleyball.com"
+    ]
 }
