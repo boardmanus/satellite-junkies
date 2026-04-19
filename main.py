@@ -192,6 +192,8 @@ def create_or_update_event(config: dict, calendar_service, game_data: dict):
     }
 
     if events:
+        if len(events) > 1:
+            logging.warning('Multiple events found for %s on %s, keeping the first and deleting the rest.', summary, date)
         existing_event = events[0]
         if needs_update(existing_event, event_body):
             calendar_service.events().update(
