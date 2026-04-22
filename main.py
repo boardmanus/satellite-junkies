@@ -12,6 +12,7 @@ import logging
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+
 # If modifying these scopes, delete the file token.pickle.
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly',
           'https://www.googleapis.com/auth/calendar']
@@ -64,6 +65,69 @@ def get_credentials():
     return creds
 
 
+class GameData:
+    start_time: datetime
+    court: int
+    opponent: str
+
+    def __init__(self, start_time: datetime, court: int, opponent: str):
+        self.start_time = start_time
+        self.court = court
+        self.opponent = opponent
+    
+    def summary(self):
+        match self.court:
+            case 0:
+                return "Volleyball Practice @ Moon"
+            case _:
+                return f"Volleyball, Court {self.court} vs {self.opponent}"
+
+    def description(self):
+        match self.court:
+            case 0:
+                return "Volleyball Practice, rule of 10."
+            case _:
+                return f"Satellite Junkies vs {self.opponent}, on Court {self.court}"
+
+    def address(self):
+        match self.court:
+            case 0:
+                return "Moon Under Water, 152 Somerfield Street, Somerfield, Christchurch 8024"
+            case 1 | 2 | 3 | 4 | 5 | 6:
+                return "Pioneer Stadium, 75 Lyttelton St, Somerfield, Christchurch 8024"
+            case _:
+                return "Parakiore, 50 Saint Asaph Street, Christchurch Central City, Christchurch 8011"
+    
+    def event(self, guests: list[str] = []):
+
+        start_time = self.start_time
+        end_time = start_time + timedelta(hours=1)
+        
+        return {
+            'summary': self.summary(),
+            'description': self.description(),
+            'location': self.address(),
+            'start': {
+                'dateTime': start_time.isoformat(),
+                'timeZone': start_time.tzinfo.key
+            },
+            'end': {
+                'dateTime': end_time.isoformat(),
+                'timeZone': end_time.tzinfo.key
+            },
+            'extendedProperties': {
+                'private': {
+                    'source': 'satellite-junkies'
+                }
+            },
+            'attendees': [{'email': email} for email in guests]
+        }
+
+def parse_datetime_local(date_str: str, time_str: str):
+    ntime_str = time_str.strip().upper().replace(' ', '')
+    dt = datetime.strptime(f"{date_str} {ntime_str}", "%d/%m/%Y %I:%M%p")
+    return dt.replace(tzinfo=ZoneInfo('Pacific/Auckland'))
+
 def parse_row(row: list, headers: list):
     date_col = next((i for i, h in enumerate(headers) if h.lower() == 'date'), None)
     time_col = next((i for i, h in enumerate(headers) if h.lower() == 'time'), None)
@@ -77,57 +141,17 @@ def parse_row(row: list, headers: list):
             ('Court', court_col),
             ('Opponent', opponent_col),
         ] if col is None]
-        logging.error('Required columns missing from sheet: %s', ', '.join(missing))
-        raise ValueError('Missing required sheet columns')
+        raise ValueError(f'Missing required sheet columns: {','.join(missing)}')
 
     if len(row) <= max(date_col, time_col, court_col, opponent_col):
-        logging.warning('Skipping incomplete row: %s', row)
-        return None
+        raise ValueError(f'Incomplete row data: {row}')
 
-    court_value = row[court_col].strip()
-    try:
-        court_value = int(court_value)
-    except ValueError:
-        logging.warning('Court value is not numeric: %s', court_value)
+    start_time = parse_datetime_local(row[date_col].strip(), row[time_col].strip())
+    court_value = int(row[court_col].strip())
+    opponent = row[opponent_col].strip()
 
-    return {
-        'date': row[date_col].strip(),
-        'time': row[time_col].strip(),
-        'court': court_value,
-        'opponent': row[opponent_col].strip(),
-    }
+    return GameData(start_time, court_value, opponent)
 
-def build_event_summary(court: int, opponent: str):
-    match court:
-        case 0:
-            return "Volleyball Practice @ Moon"
-        case _:
-            return f"Volleyball, Court {court} vs {opponent}"
-
-
-def build_event_description(court: int, opponent: str):
-    match court:
-        case 0:
-            return "Volleyball Practice, rule of 10."
-        case _:
-            return f"Satellite Junkies vs {opponent}, on Court {court}"
-
-def build_event_address(court: int):
-    match court:
-        case 0:
-            return "Moon Under Water, 152 Somerfield Street, Somerfield, Christchurch 8024"
-        case 1 | 2 | 3 | 4 | 5 | 6:
-            return "Pioneer Stadium, 75 Lyttelton St, Somerfield, Christchurch 8024"
-        case _:
-            return "Parakiore, 50 Saint Asaph Street, Christchurch Central City, Christchurch 8011"
-
-def build_guests(config: dict):
-    return config.get('players', [])
-
-def parse_datetime_local(date_str: str, time_str: str):
-    ntime_str = time_str.strip().upper().replace(' ', '')
-    dt = datetime.strptime(f"{date_str} {ntime_str}", "%d/%m/%Y %I:%M%p")
-    return dt.replace(tzinfo=ZoneInfo('Pacific/Auckland'))
 
 def normalize_attendees(attendees):
     if not attendees:
@@ -147,18 +171,9 @@ def needs_update(existing_event, new_body):
 
     return False
 
-def create_or_update_event(config: dict, calendar_service, game_data: dict):
-    date: str = game_data['date']
-    time: str = game_data['time']
-    court: int = game_data['court']
-    opponent: str = game_data['opponent']
-
-    start = parse_datetime_local(date, time)
-    end = start + timedelta(hours=1)
-    day_start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+def find_events(calendar_service, calendar_id: str, start_time: datetime):
+    day_start = start_time.replace(hour=0, minute=0, second=0, microsecond=0)
     day_end = day_start + timedelta(days=1)
-
-    calendar_id = config['calendar_id']
 
     events_result = calendar_service.events().list(
         calendarId=calendar_id,
@@ -169,53 +184,55 @@ def create_or_update_event(config: dict, calendar_service, game_data: dict):
         orderBy='startTime'
     ).execute()
 
-    events = events_result.get('items', [])
-    summary = build_event_summary(court, opponent)
-    event_body = {
-        'summary': summary,
-        'description': build_event_description(court, opponent),
-        'location': build_event_address(court),
-        'start': {
-            'dateTime': start.isoformat(),
-            'timeZone': start.tzinfo.key
-        },
-        'end': {
-            'dateTime': end.isoformat(),
-            'timeZone': start.tzinfo.key
-        },
-        'extendedProperties': {
-            'private': {
-                'source': 'satellite-junkies'
-            }
-        },
-        'attendees': [{'email': email} for email in build_guests(config)]
-    }
+    return events_result.get('items', [])
 
-    if events:
-        if len(events) > 1:
-            logging.warning('Multiple events found for %s on %s, keeping the first and deleting the rest.', summary, date)
-        existing_event = events[0]
-        if needs_update(existing_event, event_body):
-            calendar_service.events().update(
-                calendarId=calendar_id,
-                eventId=existing_event['id'],
-                body=event_body,
-                sendUpdates='none'
-            ).execute()
-            logging.info('Updated calendar event for %s on %s', summary, date)
-        else:
-            logging.info('Calendar event for %s on %s is already up to date', summary, date)
-        # Delete any additional events
-        for extra_event in events[1:]:
-            calendar_service.events().delete(calendarId=calendar_id, eventId=extra_event['id']).execute()
-            logging.info('Deleted duplicate calendar event for %s on %s', summary, date)
-    else:
-        calendar_service.events().insert(
+def update_events(calendar_service, calendar_id,event: dict, events: list[dict]):
+
+    existing_event = events[0]
+    start_time = event['start']['dateTime']
+    if needs_update(existing_event, event):
+        calendar_service.events().update(
             calendarId=calendar_id,
-            body=event_body,
+            eventId=existing_event['id'],
+            body=event,
             sendUpdates='none'
         ).execute()
-        logging.info('Created new calendar event for %s on %s', summary, date)
+        logging.info(f'Updated calendar event: {event.get("summary")} @ {start_time}')
+    else:
+        logging.info(f'Calendar event already exists: {event.get("summary")} @ {start_time}')
+
+    # Delete any additional events
+    for extra_event in events[1:]:
+        start_time = event['start']['dateTime']
+        calendar_service.events().delete(calendarId=calendar_id, eventId=extra_event['id']).execute()
+        logging.info(f'Deleted duplicate calendar event: {extra_event.get('summary')} @ {start_time}')
+
+def create_event(calendar_service, calendar_id: str, event: dict):
+        start_time = event['start']['dateTime']
+        calendar_service.events().insert(
+            calendarId=calendar_id,
+            body=event,
+            sendUpdates='none'
+        ).execute()
+        logging.info(f'Created new calendar event: {event.get("summary")} @ {start_time}')
+
+
+def handle_row(calendar_service, calendar_id: str, row: list, headers: list, guests: list[str]):
+    try:
+        game_data = parse_row(row, headers)
+        if game_data.start_time < datetime.now(game_data.start_time.tzinfo):
+            logging.info(f'Skipping past event: {game_data.summary()} @ {game_data.start_time}')
+            return
+
+        event = game_data.event(guests)
+        existing_events = find_events(calendar_service, calendar_id, game_data.start_time)
+        if len(existing_events) > 0:
+            update_events(calendar_service, calendar_id, event, existing_events)
+        else:
+            create_event(calendar_service, calendar_id, event)
+
+    except ValueError as e:
+        logging.error(f'Skipping row due to error: {e}')
 
 
 def main():
@@ -234,15 +251,11 @@ def main():
         return
 
     headers = values[0]
-    for row in values[1:]:
-        game_data = parse_row(row, headers)
-        if not game_data:
-            continue
+    calendar_id = config['calendar_id']
+    guests = config.get('players', [])
 
-        try:
-            create_or_update_event(config, calendar_service, game_data)
-        except ValueError:
-            continue
+    for row in values[1:]:
+        handle_row(calendar_service, calendar_id, row, headers, guests)
 
 
 if __name__ == '__main__':
