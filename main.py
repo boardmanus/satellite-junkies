@@ -1,6 +1,7 @@
 import json
 import os
 import pickle
+import shutil
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from googleapiclient.discovery import build
@@ -59,11 +60,10 @@ def get_credentials():
                 raise FileNotFoundError('credentials.json not found')
             flow = InstalledAppFlow.from_client_secrets_file(
                 CREDENTIALS_PATH, SCOPES)
-            creds = flow.run_local_server(port=0)
+            creds = flow.run_local_server(port=0, open_browser=True)
         with open(TOKEN_PATH, 'wb') as token_file:
             pickle.dump(creds, token_file)
     return creds
-
 
 class GameData:
     start_time: datetime
@@ -141,7 +141,7 @@ def parse_row(row: list, headers: list):
             ('Court', court_col),
             ('Opponent', opponent_col),
         ] if col is None]
-        raise ValueError(f'Missing required sheet columns: {','.join(missing)}')
+        raise ValueError(f'Missing required sheet columns: {",".join(missing)}')
 
     if len(row) <= max(date_col, time_col, court_col, opponent_col):
         raise ValueError(f'Incomplete row data: {row}')
@@ -205,7 +205,7 @@ def update_events(calendar_service, calendar_id,event: dict, events: list[dict])
     for extra_event in events[1:]:
         start_time = event['start']['dateTime']
         calendar_service.events().delete(calendarId=calendar_id, eventId=extra_event['id']).execute()
-        logging.info(f'Deleted duplicate calendar event: {extra_event.get('summary')} @ {start_time}')
+        logging.info(f'Deleted duplicate calendar event: {extra_event.get("summary")} @ {start_time}')
 
 def create_event(calendar_service, calendar_id: str, event: dict):
         start_time = event['start']['dateTime']

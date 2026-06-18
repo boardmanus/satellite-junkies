@@ -6,15 +6,20 @@ This project automates the synchronization of game times from a Google Sheet to 
 
 1. **Create a Consistent Python Environment**:
    - Create a virtual environment:
+
      ```bash
      python3 -m venv .venv
      source .venv/bin/activate  # On Windows: .venv\Scripts\activate
      ```
+
    - Install pip-tools for dependency management:
+
      ```bash
      pip install pip-tools
      ```
+
    - Generate pinned requirements.txt (if requirements.in exists):
+
      ```bash
      pip-compile requirements.in
      pip-sync
@@ -28,21 +33,25 @@ This project automates the synchronization of game times from a Google Sheet to 
    - Place `credentials.json` in the project root.
 
 3. **Run the Script**:
+
    ```bash
    python main.py
    ```
-   - On the first run, it will prompt for Google authentication.
-   - Follow the instructions to grant permissions.
+
+    - On the first run, it will prompt for Google authentication.
+    - Follow the instructions to grant permissions.
 
 ## Spreadsheet Format
 
 The Google Sheet should have the following columns (case-insensitive):
+
 - **Date**: In DD/MM/YYYY format
 - **Time**: In HH:MM AM/PM format (12-hour), e.g. `8:30 PM`
 - **Court**: The court being played on
 - **Opponent**: The team being played
 
 Example:
+
 | Date       | Time     | Court | Opponent    |
 |------------|----------|-------|-------------|
 | 23/04/2026 | 8:30 PM  | 0     | Moon        |
@@ -59,12 +68,14 @@ Example:
 ## Configuration
 
 Configuration is stored in a `config.json` file that provides the following details:
+
 - **spreadsheet_id**: The id of the Satellite Junkies spreadsheet to use (extracted from the sheet URL).
 - **calendar_id**: The id of the calendar to update. Set to 'primary' for the default calendar; change if needed.
 
 ## Testing
 
 Run the unit tests with:
+
 ```bash
 python -m unittest discover tests
 ```
