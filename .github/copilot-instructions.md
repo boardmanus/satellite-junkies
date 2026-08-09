@@ -18,13 +18,13 @@ Key design decisions:
 ## Build and Test
 ```bash
 # Install dependencies
-pip install -r requirements.txt
+uv sync
 
 # Run the main script
-python main.py
+uv run python main.py
 
 # For development/testing
-python -m pytest tests/  # When tests are added
+uv run python -m unittest discover tests
 ```
 
 ## Conventions

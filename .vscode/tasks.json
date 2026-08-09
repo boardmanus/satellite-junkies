@@ -1,0 +1,42 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "uv: sync",
+            "type": "shell",
+            "command": "uv",
+            "args": [
+                "sync"
+            ],
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "uv: run app",
+            "type": "shell",
+            "command": "uv",
+            "args": [
+                "run",
+                "python",
+                "main.py"
+            ],
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "uv: test",
+            "type": "shell",
+            "command": "uv",
+            "args": [
+                "run",
+                "python",
+                "-m",
+                "unittest",
+                "discover",
+                "tests"
+            ],
+            "group": "test",
+            "problemMatcher": []
+        }
+    ]
+}

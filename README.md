@@ -5,24 +5,10 @@ This project automates the synchronization of game times from a Google Sheet to 
 ## Setup
 
 1. **Create a Consistent Python Environment**:
-   - Create a virtual environment:
+   - Install dependencies and create `.venv` with uv:
 
      ```bash
-     python3 -m venv .venv
-     source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-     ```
-
-   - Install pip-tools for dependency management:
-
-     ```bash
-     pip install pip-tools
-     ```
-
-   - Generate pinned requirements.txt (if requirements.in exists):
-
-     ```bash
-     pip-compile requirements.in
-     pip-sync
+     uv sync
      ```
 
 2. **Enable Google APIs**:
@@ -35,7 +21,7 @@ This project automates the synchronization of game times from a Google Sheet to 
 3. **Run the Script**:
 
    ```bash
-   python main.py
+   uv run python main.py
    ```
 
     - On the first run, it will prompt for Google authentication.
@@ -77,7 +63,7 @@ Configuration is stored in a `config.json` file that provides the following deta
 Run the unit tests with:
 
 ```bash
-python -m unittest discover tests
+uv run python -m unittest discover tests
 ```
 
 ## Notes

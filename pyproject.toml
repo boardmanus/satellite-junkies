@@ -1,0 +1,22 @@
+[project]
+name = "satellite-junkies"
+version = "0.1.0"
+description = "Sync game times from Google Sheets to Google Calendar"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "google-api-python-client",
+    "google-auth-httplib2",
+    "google-auth-oauthlib",
+    "python-dotenv",
+]
+
+[build-system]
+requires = ["hatchling>=1.24.0"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = false
+
+[tool.pylint.format]
+max-line-length = 120
