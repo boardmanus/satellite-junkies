@@ -21,7 +21,7 @@ SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly',
 CONFIG_PATH = 'config.json'
 CREDENTIALS_PATH = '.private/credentials.json'
 TOKEN_PATH = '.private/token.pickle'
-DEFAULT_RANGE_NAME = 'Sheet1!A:Z'  # Adjust if sheet name differs
+DEFAULT_RANGE_NAME = 'Games!A:Z'  # Adjust if sheet name differs
 
 
 class EventDateTime(TypedDict):
